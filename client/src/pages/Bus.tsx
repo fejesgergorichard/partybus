@@ -109,7 +109,7 @@ export default function Bus() {
               checked={bus.revealed}
               onChange={toggleReveal}
             />
-            Reveal who added each song
+            Reveal Playlist
           </label>
         </section>
       )}
@@ -144,7 +144,9 @@ export default function Bus() {
 
       <section className="card">
         <h2>Playlist ({bus.submissions.length})</h2>
-        {bus.submissions.length === 0 ? (
+        {!bus.revealed ? (
+          <p className="muted">Hidden until the host reveals.</p>
+        ) : bus.submissions.length === 0 ? (
           <p className="muted">No songs yet.</p>
         ) : (
           <ol className="submissions">
@@ -153,15 +155,6 @@ export default function Bus() {
                 <div className="track">
                   <strong>{s.trackName}</strong>{" "}
                   <span className="muted">— {s.artistNames.join(", ")}</span>
-                </div>
-                <div className="who">
-                  {s.submitterName ? (
-                    <em>added by {s.submitterName}{s.isMine ? " (you)" : ""}</em>
-                  ) : s.isMine ? (
-                    <em>added by you</em>
-                  ) : (
-                    <em className="muted">added by ???</em>
-                  )}
                 </div>
               </li>
             ))}
