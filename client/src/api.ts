@@ -20,6 +20,14 @@ export type MeView = {
   bus: { code: string; name: string } | null;
 };
 
+export type MyBus = {
+  code: string;
+  createdAt: number;
+  playlistUrl: string;
+  revealed: boolean;
+  submissionCount: number;
+};
+
 async function http<T>(path: string, init: RequestInit = {}): Promise<T> {
   const res = await fetch(path, {
     credentials: "include",
@@ -43,4 +51,5 @@ export const api = {
     http<BusView>(`/api/bus/${code}/submit`, { method: "POST", body: JSON.stringify({ url }) }),
   reveal: (code: string, revealed: boolean) =>
     http<BusView>(`/api/bus/${code}/reveal`, { method: "POST", body: JSON.stringify({ revealed }) }),
+  myBuses: () => http<MyBus[]>("/api/my-buses"),
 };

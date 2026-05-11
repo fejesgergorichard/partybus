@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { api, type MeView } from "../api";
+import { api, type MeView, type MyBus } from "../api";
 
 const GILMORE_NAMES = [
   "Luke", "Rory", "Lorelai", "Christopher", "Sookie", "Lane", "Paris",
@@ -10,6 +10,7 @@ const GILMORE_NAMES = [
 
 export default function Home() {
   const [me, setMe] = useState<MeView | null>(null);
+  const [myBuses, setMyBuses] = useState<MyBus[] | null>(null);
   const [params] = useSearchParams();
   const [code, setCode] = useState((params.get("code") || "").toUpperCase());
   const [name, setName] = useState("");
@@ -22,9 +23,21 @@ export default function Home() {
     [],
   );
 
-  useEffect(() => {
-    api.me().then(setMe).catch(() => setMe({ spotify: null, bus: null }));
+  const loadMyBuses = useCallback(() => {
+    api.myBuses().then(setMyBuses).catch(() => setMyBuses([]));
   }, []);
+
+  useEffect(() => {
+    api.me().then((m) => {
+      setMe(m);
+      if (m.spotify) loadMyBuses();
+    }).catch(() => setMe({ spotify: null, bus: null }));
+  }, [loadMyBuses]);
+
+  async function toggleReveal(b: MyBus) {
+    await api.reveal(b.code, !b.revealed);
+    loadMyBuses();
+  }
 
   async function host() {
     setBusy(true);
@@ -71,6 +84,35 @@ export default function Home() {
           ) : (
             <a className="button" href="/auth/login">Log in with Spotify</a>
           )}
+        </section>
+      )}
+
+      {!arrivedViaShareLink && me?.spotify && myBuses && myBuses.length > 0 && (
+        <section className="card">
+          <h2>Your buses</h2>
+          <ul className="my-buses">
+            {myBuses.map((b) => (
+              <li key={b.code}>
+                <div className="my-bus-row">
+                  <span className="my-bus-code">{b.code}</span>
+                  <span className="muted small">
+                    {b.submissionCount} song{b.submissionCount === 1 ? "" : "s"}
+                    {" · "}
+                    {b.revealed ? "revealed" : "hidden"}
+                  </span>
+                </div>
+                <div className="my-bus-actions">
+                  <button onClick={() => navigate(`/partybus/${b.code}`)}>Open</button>
+                  <a className="button" href={b.playlistUrl} target="_blank" rel="noreferrer">
+                    Playlist ↗
+                  </a>
+                  <button onClick={() => toggleReveal(b)}>
+                    {b.revealed ? "Hide" : "Reveal"}
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
         </section>
       )}
 

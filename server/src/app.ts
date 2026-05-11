@@ -20,6 +20,7 @@ import {
   addSubmission,
   createBus,
   getBus,
+  getBusesByHost,
   setRevealed,
   updateHostTokens,
   upsertMember,
@@ -95,9 +96,9 @@ export function buildApp(): Express {
 
   app.get("/auth/callback", async (req, res) => {
     const { code, state, error } = req.query as Record<string, string | undefined>;
-    if (error) return res.redirect(`${FRONTEND_ORIGIN}/?error=${encodeURIComponent(error)}`);
+    if (error) return res.redirect(`/?error=${encodeURIComponent(error)}`);
     if (!code || !state || state !== req.session.oauthState) {
-      return res.redirect(`${FRONTEND_ORIGIN}/?error=bad_state`);
+      return res.redirect(`/?error=bad_state`);
     }
     try {
       const tokens = await exchangeCode(code);
@@ -107,10 +108,10 @@ export function buildApp(): Express {
         userId: me.id,
         displayName: me.display_name || me.id,
       };
-      res.redirect(`${FRONTEND_ORIGIN}/?logged_in=1`);
+      res.redirect(`/?logged_in=1`);
     } catch (e) {
       console.error(e);
-      res.redirect(`${FRONTEND_ORIGIN}/?error=oauth_failed`);
+      res.redirect(`/?error=oauth_failed`);
     }
   });
 
@@ -149,7 +150,7 @@ export function buildApp(): Express {
       });
       req.session.busCode = bus.code;
       req.session.name = sp.displayName;
-      res.json(viewOfBus(bus, req.sessionID));
+      res.json(viewOfBus(bus, req));
     } catch (e) {
       console.error(e);
       res.status(500).json({ error: "create_failed", detail: String(e) });
@@ -163,20 +164,21 @@ export function buildApp(): Express {
     if (!bus) return res.status(404).json({ error: "not_found" });
     req.session.busCode = bus.code;
     req.session.name = name;
-    res.json(viewOfBus(bus, req.sessionID));
+    res.json(viewOfBus(bus, req));
   });
 
   app.get("/api/bus/:code", async (req, res) => {
     const bus = await getBus(req.params.code);
     if (!bus) return res.status(404).json({ error: "not_found" });
-    res.json(viewOfBus(bus, req.sessionID));
+    res.json(viewOfBus(bus, req));
   });
 
   app.post("/api/bus/:code/submit", async (req, res) => {
     const bus = await getBus(req.params.code);
     if (!bus) return res.status(404).json({ error: "not_found" });
     const member = bus.members.find((m) => m.sessionId === req.sessionID);
-    if (!member) return res.status(403).json({ error: "not_in_bus" });
+    const host = isHostOfBus(req, bus);
+    if (!member && !host) return res.status(403).json({ error: "not_in_bus" });
     const url = (req.body?.url as string | undefined) ?? "";
     const trackId = parseTrackId(url);
     if (!trackId) return res.status(400).json({ error: "bad_url" });
@@ -191,11 +193,11 @@ export function buildApp(): Express {
         trackName: track.name,
         artistNames: track.artists.map((a) => a.name),
         submitterSessionId: req.sessionID,
-        submitterName: member.name,
+        submitterName: member?.name ?? bus.hostDisplayName,
         addedAt: Date.now(),
       };
       const updated = await addSubmission(bus.code, submission, position);
-      res.json(viewOfBus(updated ?? bus, req.sessionID));
+      res.json(viewOfBus(updated ?? bus, req));
     } catch (e) {
       console.error(e);
       res.status(500).json({ error: "submit_failed", detail: String(e) });
@@ -205,9 +207,24 @@ export function buildApp(): Express {
   app.post("/api/bus/:code/reveal", async (req, res) => {
     const bus = await getBus(req.params.code);
     if (!bus) return res.status(404).json({ error: "not_found" });
-    if (bus.hostSessionId !== req.sessionID) return res.status(403).json({ error: "not_host" });
+    if (!isHostOfBus(req, bus)) return res.status(403).json({ error: "not_host" });
     const updated = await setRevealed(req.params.code, Boolean(req.body?.revealed));
-    res.json(viewOfBus(updated ?? bus, req.sessionID));
+    res.json(viewOfBus(updated ?? bus, req));
+  });
+
+  app.get("/api/my-buses", async (req, res) => {
+    const sp = req.session.spotify;
+    if (!sp) return res.status(401).json({ error: "not_logged_in" });
+    const list = await getBusesByHost(sp.userId);
+    res.json(
+      list.map((b) => ({
+        code: b.code,
+        createdAt: b.createdAt,
+        playlistUrl: b.playlistUrl,
+        revealed: b.revealed,
+        submissionCount: b.submissions.length,
+      })),
+    );
   });
 
   // ---------- Static frontend (prod) ----------
@@ -245,8 +262,15 @@ async function freshTokenForBus(bus: Bus): Promise<string> {
   return next.accessToken;
 }
 
-function viewOfBus(bus: Bus, viewerSessionId: string) {
-  const isHost = bus.hostSessionId === viewerSessionId;
+function isHostOfBus(req: Request, bus: Bus): boolean {
+  if (bus.hostSessionId === req.sessionID) return true;
+  const spotifyUserId = req.session.spotify?.userId;
+  return spotifyUserId !== undefined && bus.hostUserId === spotifyUserId;
+}
+
+function viewOfBus(bus: Bus, req: Request) {
+  const viewerSessionId = req.sessionID;
+  const isHost = isHostOfBus(req, bus);
   const showSubmitters = bus.revealed || isHost;
   return {
     code: bus.code,

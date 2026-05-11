@@ -25,15 +25,23 @@ export default function Bus() {
   }, [code]);
 
   useEffect(() => {
-    // Check if we've joined this bus by asking /api/me.
-    api.me().then((me) => {
-      if (me.bus?.code === code.toUpperCase()) {
-        refresh();
+    // Fetch the bus first — the server marks `isHost` based on Spotify-user
+    // match, so the host can re-enter their own bus from a new session without
+    // re-joining.
+    api.getBus(code).then(async (b) => {
+      const me = await api.me();
+      const joined = me.bus?.code === code.toUpperCase();
+      if (b.isHost || joined) {
+        setBus(b);
+        setStatus("ok");
       } else {
         setStatus("not_joined");
       }
+    }).catch((e) => {
+      if (String(e).startsWith("404")) setStatus("not_found");
+      else setStatus("not_joined");
     });
-  }, [code, refresh]);
+  }, [code]);
 
   useEffect(() => {
     if (status !== "ok") return;

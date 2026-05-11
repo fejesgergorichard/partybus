@@ -86,6 +86,15 @@ export async function getBus(code: string): Promise<Bus | null> {
   return await col.findOne({ code: code.toUpperCase() });
 }
 
+export async function getBusesByHost(hostUserId: string): Promise<Bus[]> {
+  const col = await buses();
+  return await col
+    .find({ hostUserId })
+    .sort({ createdAt: -1 })
+    .limit(50)
+    .toArray();
+}
+
 export async function upsertMember(code: string, sessionId: string, name: string): Promise<Bus | null> {
   const col = await buses();
   const upper = code.toUpperCase();
