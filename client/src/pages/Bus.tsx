@@ -1,14 +1,17 @@
 import { useCallback, useEffect, useState } from "react";
-import { Navigate, useParams } from "react-router-dom";
+import { Navigate, useNavigate, useParams } from "react-router-dom";
 import { api, type BusView } from "../api";
 
 export default function Bus() {
   const { code = "" } = useParams();
   const [bus, setBus] = useState<BusView | null>(null);
-  const [status, setStatus] = useState<"loading" | "ok" | "not_joined" | "not_found">("loading");
+  const [status, setStatus] = useState<
+    "loading" | "ok" | "not_joined" | "not_found"
+  >("loading");
   const [url, setUrl] = useState("");
   const [submitErr, setSubmitErr] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const navigate = useNavigate();
 
   const refresh = useCallback(async () => {
     try {
@@ -28,19 +31,22 @@ export default function Bus() {
     // Fetch the bus first — the server marks `isHost` based on Spotify-user
     // match, so the host can re-enter their own bus from a new session without
     // re-joining.
-    api.getBus(code).then(async (b) => {
-      const me = await api.me();
-      const joined = me.bus?.code === code.toUpperCase();
-      if (b.isHost || joined) {
-        setBus(b);
-        setStatus("ok");
-      } else {
-        setStatus("not_joined");
-      }
-    }).catch((e) => {
-      if (String(e).startsWith("404")) setStatus("not_found");
-      else setStatus("not_joined");
-    });
+    api
+      .getBus(code)
+      .then(async (b) => {
+        const me = await api.me();
+        const joined = me.bus?.code === code.toUpperCase();
+        if (b.isHost || joined) {
+          setBus(b);
+          setStatus("ok");
+        } else {
+          setStatus("not_joined");
+        }
+      })
+      .catch((e) => {
+        if (String(e).startsWith("404")) setStatus("not_found");
+        else setStatus("not_joined");
+      });
   }, [code]);
 
   useEffect(() => {
@@ -56,12 +62,31 @@ export default function Bus() {
     return (
       <main className="container">
         <h1>🚌 Partybus</h1>
-        <p>No bus with code <strong>{code.toUpperCase()}</strong>.</p>
+        <p>
+          No bus with code <strong>{code.toUpperCase()}</strong>.
+        </p>
         <a href="/">Back to home</a>
       </main>
     );
   }
-  if (!bus) return <main className="container"><p>Loading…</p></main>;
+  if (!bus)
+    return (
+      <main className="container">
+        <p>Loading…</p>
+      </main>
+    );
+
+  async function navigateHome() {
+    setSubmitting(true);
+    setSubmitErr(null);
+    try {
+      navigate(`/`);
+    } catch (e) {
+      setSubmitErr(String(e));
+    } finally {
+      setSubmitting(false);
+    }
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -84,12 +109,18 @@ export default function Bus() {
     setBus(next);
   }
 
-  const shareUrl = bus.shareUrl ?? `${window.location.origin}/partybus/${bus.code}`;
+  const shareUrl =
+    bus.shareUrl ?? `${window.location.origin}/partybus/${bus.code}`;
 
   return (
     <main className="container">
       <header className="bus-header">
-        <h1>🚌 {bus.code}</h1>
+        <h1>
+          <a style={{ cursor: "pointer" }} onClick={navigateHome}>
+            🚌
+          </a>{" "}
+          {bus.code}
+        </h1>
         <p className="tag">Host: {bus.hostDisplayName}</p>
       </header>
 
@@ -97,7 +128,9 @@ export default function Bus() {
         <h2>Share the bus</h2>
         <p>Send this link to friends:</p>
         <code className="share">{shareUrl}</code>
-        <button onClick={() => navigator.clipboard.writeText(shareUrl)}>Copy link</button>
+        <button onClick={() => navigator.clipboard.writeText(shareUrl)}>
+          Copy link
+        </button>
       </section>
 
       {bus.isHost && (
