@@ -45,7 +45,8 @@ export default function Home() {
     setErr(null);
     try {
       const c = code.trim().toUpperCase();
-      const bus = await api.joinBus(c, name.trim());
+      const effectiveName = name.trim() || namePlaceholder;
+      const bus = await api.joinBus(c, effectiveName);
       navigate(`/partybus/${bus.code}`);
     } catch (e) {
       setErr(String(e));
@@ -92,10 +93,9 @@ export default function Home() {
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder={namePlaceholder}
-              required
             />
           </label>
-          <button type="submit" disabled={busy || code.length !== 4 || !name.trim()}>
+          <button type="submit" disabled={busy || code.length !== 4}>
             Hop on
           </button>
         </form>
