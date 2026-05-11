@@ -1,6 +1,12 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { api, type MeView } from "../api";
+
+const GILMORE_NAMES = [
+  "Luke", "Rory", "Lorelai", "Christopher", "Sookie", "Lane", "Paris",
+  "Dean", "Jess", "Logan", "Emily", "Richard", "Kirk", "Michel", "Taylor",
+  "Babette", "Miss Patty", "Zach", "Dave", "Max",
+];
 
 export default function Home() {
   const [me, setMe] = useState<MeView | null>(null);
@@ -11,6 +17,10 @@ export default function Home() {
   const [busy, setBusy] = useState(false);
   const navigate = useNavigate();
   const arrivedViaShareLink = Boolean(params.get("code"));
+  const namePlaceholder = useMemo(
+    () => GILMORE_NAMES[Math.floor(Math.random() * GILMORE_NAMES.length)],
+    [],
+  );
 
   useEffect(() => {
     api.me().then(setMe).catch(() => setMe({ spotify: null, bus: null }));
@@ -81,7 +91,7 @@ export default function Home() {
             <input
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="Gergő"
+              placeholder={namePlaceholder}
               required
             />
           </label>
