@@ -1,0 +1,30 @@
+# Fly.io config for Partybus.
+#
+# Rename `app` to something globally unique on Fly (it'll be the subdomain on
+# *.fly.dev). Then:
+#   fly launch --copy-config --no-deploy   # creates the app
+#   fly secrets set \
+#     SPOTIFY_CLIENT_ID=... \
+#     SPOTIFY_CLIENT_SECRET=... \
+#     SESSION_SECRET="$(openssl rand -hex 32)" \
+#     SPOTIFY_REDIRECT_URI=https://<app>.fly.dev/auth/callback \
+#     FRONTEND_ORIGIN=https://<app>.fly.dev
+#   fly deploy
+
+app = "partybus"
+primary_region = "iad"
+
+[build]
+
+[http_service]
+  internal_port = 3000
+  force_https = true
+  # Stay warm so in-memory bus state survives between requests.
+  # (Free tier: one always-on shared-cpu-1x is fine.)
+  auto_stop_machines = "off"
+  min_machines_running = 1
+
+[[vm]]
+  cpu_kind = "shared"
+  cpus = 1
+  memory_mb = 256
