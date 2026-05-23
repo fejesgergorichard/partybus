@@ -60,11 +60,11 @@ export default function Bus() {
   if (status === "not_found") {
     return (
       <main className="container">
-        <h1>🚌 Partybus</h1>
+        <h1><Link to="/" className="home-link">🚌</Link> Partybus</h1>
         <p>
           No bus with code <strong>{code.toUpperCase()}</strong>.
         </p>
-        <a href="/">Back to home</a>
+        <Link to="/">Back to home</Link>
       </main>
     );
   }

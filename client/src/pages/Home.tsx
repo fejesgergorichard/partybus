@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { api, type MeView, type MyBus } from "../api";
 
 const GILMORE_NAMES = [
@@ -70,7 +70,7 @@ export default function Home() {
 
   return (
     <main className="container">
-      <h1>🚌 Partybus</h1>
+      <h1><Link to="/" className="home-link">🚌</Link> Partybus</h1>
       <p className="tag">Everyone adds a song. Nobody knows who added what. Guess.</p>
 
       {!arrivedViaShareLink && (
