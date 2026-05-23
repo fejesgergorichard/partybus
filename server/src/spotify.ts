@@ -14,7 +14,19 @@ function required(name: string): string {
 export const SCOPES = [
   "playlist-modify-private",
   "playlist-modify-public",
+  "user-read-currently-playing",
 ].join(" ");
+
+export class SpotifyApiError extends Error {
+  constructor(
+    public readonly status: number,
+    public readonly path: string,
+    body: string,
+  ) {
+    super(`Spotify API ${status} ${path}: ${body}`);
+    this.name = "SpotifyApiError";
+  }
+}
 
 export function buildAuthorizeUrl(state: string): string {
   const params = new URLSearchParams({
@@ -100,7 +112,7 @@ async function api<T>(
   });
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`Spotify API ${res.status} ${path}: ${text}`);
+    throw new SpotifyApiError(res.status, path, text);
   }
   if (res.status === 204) return undefined as T;
   return (await res.json()) as T;
@@ -151,6 +163,63 @@ export async function addTrackToPlaylist(
     method: "POST",
     body: JSON.stringify(body),
   });
+}
+
+export type CurrentlyPlaying = {
+  itemUri: string;
+  contextUri: string | null;
+};
+
+/**
+ * Returns the user's currently playing track URI and playback context URI,
+ * or null if nothing is playing (204) or the response has no item (e.g. ad).
+ * Requires the `user-read-currently-playing` scope.
+ */
+export async function getCurrentlyPlaying(
+  token: string,
+): Promise<CurrentlyPlaying | null> {
+  const raw = await api<
+    | {
+        item?: { uri: string } | null;
+        context?: { uri: string } | null;
+      }
+    | undefined
+  >(token, "/me/player/currently-playing");
+  if (!raw || !raw.item) return null;
+  return {
+    itemUri: raw.item.uri,
+    contextUri: raw.context?.uri ?? null,
+  };
+}
+
+/**
+ * Returns the playlist's track URIs in order, paginating through the API.
+ * Capped at `cap` items — the current track may not be findable if the
+ * playlist is longer than the cap, in which case the caller falls back.
+ */
+export async function getPlaylistTrackUris(
+  token: string,
+  playlistId: string,
+  { cap }: { cap: number },
+): Promise<string[]> {
+  const uris: string[] = [];
+  const pageSize = 100;
+  let offset = 0;
+  while (uris.length < cap) {
+    const page = await api<{
+      items: { track: { uri: string } | null }[];
+      next: string | null;
+    }>(
+      token,
+      `/playlists/${playlistId}/tracks?fields=items(track(uri)),next&limit=${pageSize}&offset=${offset}`,
+    );
+    for (const it of page.items) {
+      if (it.track?.uri) uris.push(it.track.uri);
+    }
+    if (!page.next || page.items.length < pageSize) break;
+    offset += pageSize;
+  }
+  return uris;
 }
 
 /** Accepts an open.spotify.com URL or a spotify:track: URI and returns the track id. */

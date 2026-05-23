@@ -10,10 +10,13 @@ import {
   buildAuthorizeUrl,
   createPlaylist,
   exchangeCode,
+  getCurrentlyPlaying,
   getMe,
+  getPlaylistTrackUris,
   getTrack,
   parseTrackId,
   refreshAccessToken,
+  SpotifyApiError,
   type TokenSet,
 } from "./spotify.js";
 import {
@@ -41,6 +44,16 @@ declare module "express-session" {
 const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || "http://127.0.0.1:5173";
 const STATIC_DIR = process.env.STATIC_DIR;
 const IS_PROD = process.env.NODE_ENV === "production";
+
+// When a track is submitted while playback is in our playlist, drop the new
+// track somewhere in this window past the currently-playing index. Avoids
+// hijacking the immediate next-up slot, but keeps it close enough to land
+// during the same session.
+const INSERT_MIN_OFFSET = 3;
+const INSERT_MAX_OFFSET = 15;
+// Cap on tracks fetched while locating the currently-playing index. A party
+// playlist won't approach this; the cap just bounds latency.
+const PLAYLIST_TRACKS_MAX_FETCH = 500;
 
 // In dev, friends on the LAN can't reach 127.0.0.1, so share links must use
 // the Mac's LAN IP. In prod the browser's origin already is the public URL.
@@ -70,13 +83,23 @@ export function buildApp(): Express {
       secret: process.env.SESSION_SECRET || "dev-secret",
       resave: false,
       saveUninitialized: true,
+      // Refresh the cookie on every response so an active guest's session
+      // never silently expires mid-party.
+      rolling: true,
       store: MongoStore.create({
         clientPromise: getMongoClient(),
         dbName: process.env.MONGODB_DB || "partybus",
         collectionName: "sessions",
         ttl: 60 * 60 * 24 * 7, // 7 days
       }),
-      cookie: { httpOnly: true, sameSite: "lax", secure: IS_PROD },
+      cookie: {
+        httpOnly: true,
+        sameSite: "lax",
+        secure: IS_PROD,
+        // Without maxAge the cookie is a "browser session" cookie and mobile
+        // browsers purge it when the tab is backgrounded. Match the store TTL.
+        maxAge: 1000 * 60 * 60 * 24 * 7, // 7 days
+      },
     }),
   );
 
@@ -185,8 +208,21 @@ export function buildApp(): Express {
     try {
       const token = await freshTokenForBus(bus);
       const track = await getTrack(token, trackId);
-      const position = Math.floor(Math.random() * (bus.submissions.length + 1));
-      await addTrackToPlaylist(token, bus.playlistId, track.uri, position);
+      const { position, reason } = await pickInsertionPosition(bus, token);
+      // pickInsertionPosition may refresh and persist new tokens; re-read.
+      const writeToken = bus.tokens.accessToken;
+      await addTrackToPlaylist(
+        writeToken,
+        bus.playlistId,
+        track.uri,
+        position ?? undefined,
+      );
+      const localPosition = position ?? bus.submissions.length;
+      console.log(
+        `[partybus] submit ${bus.code} "${track.name}": ${
+          position === null ? "append" : `insert pos=${position}`
+        }, ${reason}`,
+      );
       const submission: Submission = {
         trackId: track.id,
         trackUri: track.uri,
@@ -196,7 +232,7 @@ export function buildApp(): Express {
         submitterName: member?.name ?? bus.hostDisplayName,
         addedAt: Date.now(),
       };
-      const updated = await addSubmission(bus.code, submission, position);
+      const updated = await addSubmission(bus.code, submission, localPosition);
       res.json(viewOfBus(updated ?? bus, req));
     } catch (e) {
       console.error(e);
@@ -260,6 +296,58 @@ async function freshTokenForBus(bus: Bus): Promise<string> {
   await updateHostTokens(bus.code, next);
   bus.tokens = next;
   return next.accessToken;
+}
+
+// Decide where a new submission lands in the host's Spotify playlist.
+// Returns `position: null` to mean "append to end" — caller omits the
+// position parameter so Spotify appends naturally.
+async function pickInsertionPosition(
+  bus: Bus,
+  initialToken: string,
+): Promise<{ position: number | null; reason: string }> {
+  let token = initialToken;
+  let retriedOn401 = false;
+  while (true) {
+    try {
+      const playing = await getCurrentlyPlaying(token);
+      if (!playing) return { position: null, reason: "nothing_playing" };
+      const ourContext = `spotify:playlist:${bus.playlistId}`;
+      if (playing.contextUri !== ourContext) {
+        return { position: null, reason: "wrong_context" };
+      }
+      const uris = await getPlaylistTrackUris(token, bus.playlistId, {
+        cap: PLAYLIST_TRACKS_MAX_FETCH,
+      });
+      const currentIdx = uris.indexOf(playing.itemUri);
+      if (currentIdx < 0) {
+        return { position: null, reason: "current_not_found" };
+      }
+      const span = INSERT_MAX_OFFSET - INSERT_MIN_OFFSET + 1;
+      const offset = INSERT_MIN_OFFSET + Math.floor(Math.random() * span);
+      const position = Math.min(currentIdx + offset, uris.length);
+      return {
+        position,
+        reason: `insert-after-current (current=${currentIdx} playlistLen=${uris.length} offset=${offset})`,
+      };
+    } catch (e) {
+      if (!retriedOn401 && e instanceof SpotifyApiError && e.status === 401) {
+        retriedOn401 = true;
+        try {
+          const next = await refreshAccessToken(bus.tokens.refreshToken);
+          await updateHostTokens(bus.code, next);
+          bus.tokens = next;
+          token = next.accessToken;
+          continue;
+        } catch (refreshErr) {
+          return {
+            position: null,
+            reason: `api_error: refresh_failed: ${String(refreshErr)}`,
+          };
+        }
+      }
+      return { position: null, reason: `api_error: ${String(e)}` };
+    }
+  }
 }
 
 function isHostOfBus(req: Request, bus: Bus): boolean {
