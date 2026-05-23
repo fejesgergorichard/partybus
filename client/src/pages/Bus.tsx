@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Navigate, useNavigate, useParams } from "react-router-dom";
+import { Link, Navigate, useParams } from "react-router-dom";
 import { api, type BusView } from "../api";
 
 export default function Bus() {
@@ -11,7 +11,6 @@ export default function Bus() {
   const [url, setUrl] = useState("");
   const [submitErr, setSubmitErr] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const navigate = useNavigate();
 
   const refresh = useCallback(async () => {
     try {
@@ -76,18 +75,6 @@ export default function Bus() {
       </main>
     );
 
-  async function navigateHome() {
-    setSubmitting(true);
-    setSubmitErr(null);
-    try {
-      navigate(`/`);
-    } catch (e) {
-      setSubmitErr(String(e));
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setSubmitting(true);
@@ -116,9 +103,7 @@ export default function Bus() {
     <main className="container">
       <header className="bus-header">
         <h1>
-          <a style={{ cursor: "pointer" }} onClick={navigateHome}>
-            🚌
-          </a>{" "}
+          <Link to="/" className="home-link">🚌</Link>{" "}
           {bus.code}
         </h1>
         <p className="tag">Host: {bus.hostDisplayName}</p>
