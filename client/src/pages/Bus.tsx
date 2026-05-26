@@ -75,18 +75,41 @@ export default function Bus() {
       </main>
     );
 
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
+  async function doSubmit(submitUrl: string) {
     setSubmitting(true);
     setSubmitErr(null);
     try {
-      const next = await api.submit(code, url);
+      const next = await api.submit(code, submitUrl);
       setBus(next);
       setUrl("");
     } catch (e) {
       setSubmitErr(String(e));
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    const typed = url.trim();
+    if (typed) {
+      await doSubmit(typed);
+      return;
+    }
+    // Empty box: try to paste-and-submit from the clipboard in one click.
+    // Clipboard reads need a user gesture, so we can't peek to enable/disable
+    // the button — we just attempt the read here.
+    if (!hasClipboardRead) return;
+    try {
+      const fromClipboard = (await navigator.clipboard.readText()).trim();
+      if (!fromClipboard) {
+        setSubmitErr("Clipboard is empty");
+        return;
+      }
+      setUrl(fromClipboard);
+      await doSubmit(fromClipboard);
+    } catch {
+      setSubmitErr("Couldn't read clipboard — paste it manually");
     }
   }
 
@@ -98,6 +121,9 @@ export default function Bus() {
 
   const shareUrl =
     bus.shareUrl ?? `${window.location.origin}/partybus/${bus.code}`;
+  const hasClipboardRead =
+    typeof navigator !== "undefined" && !!navigator.clipboard?.readText;
+  const canPasteSubmit = !url.trim() && hasClipboardRead;
 
   return (
     <main className="container">
@@ -149,11 +175,13 @@ export default function Bus() {
               value={url}
               onChange={(e) => setUrl(e.target.value)}
               placeholder="https://open.spotify.com/track/..."
-              required
             />
           </label>
-          <button type="submit" disabled={submitting || !url.trim()}>
-            Add to bus
+          <button
+            type="submit"
+            disabled={submitting || (!url.trim() && !hasClipboardRead)}
+          >
+            {canPasteSubmit ? "Paste & Submit" : "Add to bus"}
           </button>
         </form>
         {submitErr && <p className="error">{submitErr}</p>}
